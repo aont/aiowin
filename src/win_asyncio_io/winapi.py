@@ -117,6 +117,10 @@ _ResetEvent = kernel32.ResetEvent
 _ResetEvent.argtypes = [wt.HANDLE]
 _ResetEvent.restype = wt.BOOL
 
+_GetFileSizeEx = kernel32.GetFileSizeEx
+_GetFileSizeEx.argtypes = [wt.HANDLE, ctypes.POINTER(ctypes.c_longlong)]
+_GetFileSizeEx.restype = wt.BOOL
+
 
 # Public API -----------------------------------------------------------------
 
@@ -165,6 +169,14 @@ def GetFileType(handle: int) -> int:
 def CloseHandle(handle: int) -> None:
     if handle and handle != INVALID_HANDLE_VALUE:
         _CloseHandle(wt.HANDLE(handle))
+
+
+def GetFileSizeEx(handle: int) -> int:
+    size = ctypes.c_longlong()
+    ok = _GetFileSizeEx(wt.HANDLE(handle), ctypes.byref(size))
+    if not ok:
+        raise OSError("GetFileSizeEx failed")
+    return int(size.value)
 
 
 def CreateEvent(

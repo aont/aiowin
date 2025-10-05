@@ -11,16 +11,42 @@ from .pipe import _make_writer_protocol
 #  - WRITE: CREATE_ALWAYS, FILE_FLAG_OVERLAPPED
 
 class AsyncFileReader:
-    def __init__(self, reader: asyncio.StreamReader, transport: asyncio.BaseTransport):
+    def __init__(
+        self,
+        reader: asyncio.StreamReader,
+        transport: asyncio.BaseTransport,
+        file_size: int,
+    ):
         self.reader = reader
         self.transport = transport
+        self._remaining = max(file_size, 0)
+        self._closed = False
 
     async def read(self, n: int | None = None) -> bytes:
+        if self._remaining == 0:
+            return b""
+
         if n is None:
-            return await self.reader.read()
-        return await self.reader.read(n)
+            to_read = self._remaining
+        else:
+            to_read = max(min(n, self._remaining), 0)
+
+        if to_read == 0:
+            return b""
+
+        try:
+            data = await self.reader.read(to_read)
+        except asyncio.IncompleteReadError as exc:
+            data = exc.partial
+        self._remaining = max(self._remaining - len(data), 0)
+        if self._remaining == 0 or self.reader.at_eof():
+            await self.aclose()
+        return data
 
     async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         try:
             self.transport.close()
         finally:
@@ -89,7 +115,8 @@ async def open_async_reader(path: str, share_mode: int = DEFAULT_SHARE_FLAGS) ->
     reader = asyncio.StreamReader()
     protocol = asyncio.StreamReaderProtocol(reader)
     transport, _ = await loop.connect_read_pipe(lambda: protocol, rph)
-    return AsyncFileReader(reader, transport)
+    file_size = winapi.GetFileSizeEx(osfhandle)
+    return AsyncFileReader(reader, transport, file_size)
 
 async def open_async_writer(
     path: str,
