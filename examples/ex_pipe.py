@@ -9,7 +9,8 @@ async def main():
     await w.write(b"test")
     # パイプ終端を閉じる
     await w.aclose()
-    data = await r.reader.read()
+    data = await r.read()
     print("PIPE:", data)
+    await r.aclose()
 
 asyncio.run(main())

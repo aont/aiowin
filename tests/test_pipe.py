@@ -11,5 +11,6 @@ async def test_pipe_roundtrip():
     payload = b"test-12345"
     await w.write(payload)
     await w.aclose()
-    data = await r.reader.read()
+    data = await r.read()
+    await r.aclose()
     assert data == payload
