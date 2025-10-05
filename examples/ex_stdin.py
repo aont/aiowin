@@ -3,12 +3,12 @@ from win_asyncio_io import AsyncStdinReader, ensure_proactor_loop
 import asyncio
 
 async def main():
-    # Windows では念のため明示
+    # Explicitly set on Windows for clarity
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     ensure_proactor_loop()
 
     async with AsyncStdinReader(raw_console=True) as reader:
-        data = await reader.read(10)  # 例: 10 バイト読む
+        data = await reader.read(10)  # Example: read 10 bytes
         print("READ:", data)
 
 asyncio.run(main())

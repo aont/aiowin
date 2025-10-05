@@ -12,7 +12,7 @@ async def main():
         ev.set()
 
     asyncio.create_task(setter())
-    await ev.wait()  # Event シグナルを await
+    await ev.wait()  # Await the event signal
     print("Event signaled")
 
 asyncio.run(main())

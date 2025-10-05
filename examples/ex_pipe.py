@@ -7,7 +7,7 @@ async def main():
 
     r, w = await create_pipe_pair()
     await w.write(b"test")
-    # パイプ終端を閉じる
+    # Close the pipe endpoint
     await w.aclose()
     data = await r.read()
     print("PIPE:", data)
