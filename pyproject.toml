@@ -25,9 +25,7 @@ classifiers = [
   "Topic :: System :: Networking",
 ]
 
-dependencies = [
-  "pywin32>=306; platform_system == 'Windows'"
-]
+dependencies = []
 
 [tool.setuptools]
 package-dir = {"" = "src"}

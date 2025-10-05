@@ -1,12 +1,17 @@
 import asyncio
-import sys
-import _winapi
 import asyncio.windows_utils
+
+from . import winapi
 from .utils import (
-    FILE_TYPE_CHAR, FILE_TYPE_PIPE,
-    ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT,
-    get_file_type, get_console_mode, set_console_mode, ConsoleModeGuard,
-    ensure_proactor_loop
+    FILE_TYPE_CHAR,
+    FILE_TYPE_PIPE,
+    ENABLE_ECHO_INPUT,
+    ENABLE_LINE_INPUT,
+    get_file_type,
+    get_console_mode,
+    set_console_mode,
+    ConsoleModeGuard,
+    ensure_proactor_loop,
 )
 
 class AsyncStdinReader:
@@ -36,7 +41,7 @@ class AsyncStdinReader:
     async def __aenter__(self) -> asyncio.StreamReader:
         ensure_proactor_loop()
         loop = asyncio.get_running_loop()
-        stdin_handle = _winapi.GetStdHandle(_winapi.STD_INPUT_HANDLE)
+        stdin_handle = winapi.GetStdHandle(winapi.STD_INPUT_HANDLE)
         ftype = get_file_type(stdin_handle)
 
         if ftype == FILE_TYPE_CHAR:
@@ -46,15 +51,15 @@ class AsyncStdinReader:
                 new_mode = mode & ~ENABLE_LINE_INPUT & ~ENABLE_ECHO_INPUT
                 self._console_guard = ConsoleModeGuard(stdin_handle, new_mode)
                 self._console_guard.__enter__()
-            conin = _winapi.CreateFile(
+            conin = winapi.CreateFile(
                 "CONIN$",
-                _winapi.GENERIC_READ,
+                winapi.GENERIC_READ,
                 0, 0,
-                _winapi.OPEN_EXISTING,
-                _winapi.FILE_FLAG_OVERLAPPED,
+                winapi.OPEN_EXISTING,
+                winapi.FILE_FLAG_OVERLAPPED,
                 0
             )
-            if int(conin) == _winapi.INVALID_HANDLE_VALUE:
+            if conin == winapi.INVALID_HANDLE_VALUE:
                 raise OSError("CreateFile(CONIN$) failed")
             self._opened_handle = conin
             rph = asyncio.windows_utils.PipeHandle(conin)

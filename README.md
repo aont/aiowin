@@ -3,7 +3,7 @@
 Windows の Proactor / IOCP を**そのまま**使い、`stdin` / `pipe` / `file` / `win32 event`
 を asyncio で扱うための極薄ラッパー。実装は以下を忠実に踏襲しています。
 
-- `_winapi.CreateFile(..., FILE_FLAG_OVERLAPPED)`
+- `win_asyncio_io.winapi.CreateFile(..., FILE_FLAG_OVERLAPPED)`
 - `asyncio.windows_utils.PipeHandle`
 - `loop.connect_read_pipe` + `StreamReaderProtocol`
 - `asyncio.proactor_events._ProactorBaseWritePipeTransport`（私用 API）

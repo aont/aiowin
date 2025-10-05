@@ -1,8 +1,9 @@
 import asyncio
 import asyncio.proactor_events
 import asyncio.windows_utils
-import _winapi
+
 from .utils import ensure_proactor_loop
+from . import winapi
 from .pipe import _make_writer_protocol
 
 # Desired defaults mirror your sample:
@@ -61,9 +62,7 @@ class AsyncFileWriter:
             await wait_closed()
 
 DEFAULT_SHARE_FLAGS = (
-    _winapi.FILE_SHARE_READ
-    | _winapi.FILE_SHARE_WRITE
-    | _winapi.FILE_SHARE_DELETE
+    winapi.FILE_SHARE_READ | winapi.FILE_SHARE_WRITE | winapi.FILE_SHARE_DELETE
 )
 
 
@@ -71,20 +70,20 @@ async def open_async_reader(path: str, share_mode: int = DEFAULT_SHARE_FLAGS) ->
     """
     Open a file for async READ using overlapped I/O and connect_read_pipe, like the sample.
 
-    share_mode: typically 0. Use win32file.FILE_SHARE_READ if必要なら（pywin32が提供）。
+    share_mode: typically 0. Use constants from ``win_asyncio_io.winapi`` when sharing is required.
     """
     ensure_proactor_loop()
     loop = asyncio.get_running_loop()
-    osfhandle = _winapi.CreateFile(
+    osfhandle = winapi.CreateFile(
         path,
-        _winapi.GENERIC_READ,
+        winapi.GENERIC_READ,
         share_mode,
         0,
-        _winapi.OPEN_EXISTING,
-        _winapi.FILE_FLAG_OVERLAPPED,
+        winapi.OPEN_EXISTING,
+        winapi.FILE_FLAG_OVERLAPPED,
         0,
     )
-    if int(osfhandle) == _winapi.INVALID_HANDLE_VALUE:
+    if osfhandle == winapi.INVALID_HANDLE_VALUE:
         raise OSError(f"CreateFile(read, {path!r}) failed")
     rph = asyncio.windows_utils.PipeHandle(osfhandle)
     reader = asyncio.StreamReader()
@@ -102,16 +101,16 @@ async def open_async_writer(
     """
     ensure_proactor_loop()
     loop = asyncio.get_running_loop()
-    osfhandle = _winapi.CreateFile(
+    osfhandle = winapi.CreateFile(
         path,
-        _winapi.GENERIC_WRITE,
+        winapi.GENERIC_WRITE,
         share_mode,
         0,
         create_disposition,
-        _winapi.FILE_FLAG_OVERLAPPED,
+        winapi.FILE_FLAG_OVERLAPPED,
         0,
     )
-    if int(osfhandle) == _winapi.INVALID_HANDLE_VALUE:
+    if osfhandle == winapi.INVALID_HANDLE_VALUE:
         raise OSError(f"CreateFile(write, {path!r}) failed")
     wph = asyncio.windows_utils.PipeHandle(osfhandle)
 

@@ -1,15 +1,17 @@
 import sys
 import asyncio
 import ctypes
-import ctypes.wintypes as wt
-import _winapi
 
 if sys.platform != "win32":
     raise RuntimeError("win-asyncio-io is Windows-only")
 
+import ctypes.wintypes as wt
+
+from . import winapi
+
 # --- Win32 helpers -----------------------------------------------------------
 
-kernel32 = ctypes.windll.kernel32
+kernel32 = winapi.kernel32
 
 # Console mode bits
 ENABLE_LINE_INPUT = 0x0002
@@ -24,7 +26,7 @@ def _to_handle(h: int) -> wt.HANDLE:
     return wt.HANDLE(int(h))
 
 def get_file_type(handle: int) -> int:
-    return _winapi.GetFileType(handle)
+    return winapi.GetFileType(handle)
 
 def get_console_mode(handle: int) -> int:
     mode = wt.DWORD()
@@ -37,8 +39,8 @@ def set_console_mode(handle: int, mode: int) -> None:
         raise OSError(ctypes.get_last_error(), "SetConsoleMode failed")
 
 def close_handle(handle: int) -> None:
-    if handle and int(handle) != 0 and int(handle) != _winapi.INVALID_HANDLE_VALUE:
-        kernel32.CloseHandle(_to_handle(handle))
+    if handle and int(handle) != 0 and int(handle) != winapi.INVALID_HANDLE_VALUE:
+        winapi.CloseHandle(handle)
 
 class ConsoleModeGuard:
     """

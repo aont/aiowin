@@ -1,7 +1,8 @@
 import asyncio
-import sys
-import win32event  # from pywin32
+import ctypes
 from typing import Iterable
+
+from . import winapi
 from .utils import ensure_proactor_loop
 
 class AsyncWin32Event:
@@ -10,20 +11,23 @@ class AsyncWin32Event:
     exactly like the provided sample.
     """
     def __init__(self, manual_reset: bool = False, initial_state: bool = False, name: str | None = None):
-        self._handle = win32event.CreateEvent(None, manual_reset, initial_state, name)
+        handle = winapi.CreateEvent(None, manual_reset, initial_state, name)
+        if not handle:
+            raise OSError(ctypes.get_last_error(), "CreateEvent failed")
+        self._handle = handle
 
     @property
     def handle(self) -> int:
         return int(self._handle)
 
     def set(self) -> None:
-        win32event.SetEvent(self._handle)
+        winapi.SetEvent(self._handle)
 
     def reset(self) -> None:
-        win32event.ResetEvent(self._handle)
+        winapi.ResetEvent(self._handle)
 
     def close(self) -> None:
-        win32event.CloseHandle(self._handle)
+        winapi.CloseHandle(self._handle)
 
     async def wait(self, timeout: float | None = None) -> None:
         """

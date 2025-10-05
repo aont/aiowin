@@ -1,8 +1,8 @@
 import asyncio
 import asyncio.proactor_events
 import asyncio.windows_utils
-import _winapi
 from typing import NamedTuple
+
 from .utils import ensure_proactor_loop
 
 def _make_writer_protocol(loop: asyncio.AbstractEventLoop):
