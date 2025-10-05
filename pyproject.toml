@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "win-asyncio-io"
+version = "0.1.0"
+description = "Windows-only asyncio wrappers for stdin/pipes/files/win32 events using Proactor & IOCP"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+  { name = "Your Name" }
+]
+keywords = ["asyncio", "windows", "IOCP", "proactor", "pipe", "win32", "event"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Operating System :: Microsoft :: Windows",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: System :: Operating System",
+  "Topic :: System :: Networking",
+]
+
+dependencies = [
+  "pywin32>=306; platform_system == 'Windows'"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
