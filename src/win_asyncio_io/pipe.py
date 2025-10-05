@@ -53,10 +53,29 @@ class AsyncPipeWriter:
         await self.writer.drain()
 
     async def aclose(self) -> None:
+        """Close the writer transport and wait until the handle is released."""
+
+        # ``StreamWriter.close`` delegates to ``transport.close`` but does not
+        # provide a direct awaitable.  Call both defensively and await the
+        # transport/stream closures when available so the overlapped handle is
+        # released before returning.
         try:
             self.writer.close()
         except Exception:
             pass
+
+        writer_wait_closed = getattr(self.writer, "wait_closed", None)
+        if callable(writer_wait_closed):
+            try:
+                await writer_wait_closed()
+            except Exception:
+                pass
+
+        try:
+            self.transport.close()
+        except Exception:
+            pass
+
         wait_closed = getattr(self.transport, "wait_closed", None)
         if wait_closed is not None:
             await wait_closed()

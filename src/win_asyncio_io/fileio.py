@@ -37,14 +37,37 @@ class AsyncFileWriter:
         await self.writer.drain()
 
     async def aclose(self) -> None:
+        """Close the writer and wait for the overlapped handle to be freed."""
+
         try:
             self.writer.close()
-        finally:
-            wait_closed = getattr(self.transport, "wait_closed", None)
-            if wait_closed is not None:
-                await wait_closed()
+        except Exception:
+            pass
 
-async def open_async_reader(path: str, share_mode: int = 0) -> AsyncFileReader:
+        writer_wait_closed = getattr(self.writer, "wait_closed", None)
+        if callable(writer_wait_closed):
+            try:
+                await writer_wait_closed()
+            except Exception:
+                pass
+
+        try:
+            self.transport.close()
+        except Exception:
+            pass
+
+        wait_closed = getattr(self.transport, "wait_closed", None)
+        if wait_closed is not None:
+            await wait_closed()
+
+DEFAULT_SHARE_FLAGS = (
+    _winapi.FILE_SHARE_READ
+    | _winapi.FILE_SHARE_WRITE
+    | _winapi.FILE_SHARE_DELETE
+)
+
+
+async def open_async_reader(path: str, share_mode: int = DEFAULT_SHARE_FLAGS) -> AsyncFileReader:
     """
     Open a file for async READ using overlapped I/O and connect_read_pipe, like the sample.
 
@@ -72,7 +95,7 @@ async def open_async_reader(path: str, share_mode: int = 0) -> AsyncFileReader:
 async def open_async_writer(
     path: str,
     create_disposition: int = 2,  # CREATE_ALWAYS
-    share_mode: int = 0
+    share_mode: int = DEFAULT_SHARE_FLAGS,
 ) -> AsyncFileWriter:
     """
     Open a file for async WRITE using overlapped I/O and _ProactorBaseWritePipeTransport.
