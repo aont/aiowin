@@ -32,4 +32,4 @@ asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
   `StreamReader`
 * `create_pipe_pair()` → returns `(AsyncPipeReader, AsyncPipeWriter)`
 * `open_async_reader(path)` / `open_async_writer(path)`
-* `AsyncWin32Event` / `wait_many([...])`
+* `wait_for_handle(handle, timeout=None)`
