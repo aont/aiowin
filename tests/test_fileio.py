@@ -10,7 +10,8 @@ async def test_file_read_write(tmp_path):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     p = tmp_path / "x.txt"
     w = await open_async_writer(str(p))
-    await w.write(b"hello")
+    w.write(b"hello")
+    await w.drain()
     await w.aclose()
 
     r = await open_async_reader(str(p))

@@ -6,7 +6,8 @@ async def main():
     ensure_proactor_loop()
 
     r, w = await create_pipe_pair()
-    await w.write(b"test")
+    w.write(b"test")
+    await w.drain()
     # Close the pipe endpoint
     await w.aclose()
     data = await r.read()

@@ -11,7 +11,8 @@ async def main():
     print("Opening async writer for demo.txt")
     w = await open_async_writer("demo.txt")  # CREATE_ALWAYS 相当
     print("Writing to demo.txt")
-    await w.write(b"hello overlapped io")
+    w.write(b"hello overlapped io")
+    await w.drain()
     print("Closing writer")
     await w.aclose()
 
