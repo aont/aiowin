@@ -9,7 +9,8 @@ async def test_pipe_roundtrip():
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     r, w = await create_pipe_pair()
     payload = b"test-12345"
-    await w.write(payload)
+    w.write(payload)
+    await w.drain()
     await w.aclose()
     data = await r.read()
     await r.aclose()

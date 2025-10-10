@@ -71,13 +71,6 @@ class _TransportClosingStreamWriter(asyncio.StreamWriter):
         super().__init__(transport, protocol, None, loop)
         self._close_called = False
 
-    async def write(self, data: bytes) -> None:  # type: ignore[override]
-        super().write(data)
-        await self.drain()
-
-    def write_nowait(self, data: bytes) -> None:
-        super().write(data)
-
     async def aclose(self) -> None:
         if self._close_called:
             return
