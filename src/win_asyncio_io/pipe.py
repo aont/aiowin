@@ -4,6 +4,107 @@ import asyncio.windows_utils
 
 from .utils import ensure_proactor_loop
 
+
+class _TransportBoundStreamReader(asyncio.StreamReader):
+    """StreamReader that retains and explicitly closes its transport."""
+
+    def __init__(self, *, limit: int | None = None):
+        if limit is None:
+            super().__init__()
+        else:
+            super().__init__(limit=limit)
+        self._bound_transport: asyncio.BaseTransport | None = None
+        self._transport_closed = False
+
+    def bind_transport(self, transport: asyncio.BaseTransport) -> None:
+        self._bound_transport = transport
+
+    async def aclose(self) -> None:
+        if self._transport_closed:
+            return
+        self._transport_closed = True
+        transport = self._bound_transport
+        if transport is None:
+            return
+        try:
+            transport.close()
+        finally:
+            wait_closed = getattr(transport, "wait_closed", None)
+            if callable(wait_closed):
+                await wait_closed()
+
+    def _translate_size(self, n: int | None) -> int:
+        if n is None:
+            return -1
+        return n
+
+    async def _after_read(self, nbytes: int) -> None:
+        if self.at_eof():
+            await self.aclose()
+
+    async def read(self, n: int | None = -1) -> bytes:  # type: ignore[override]
+        limit = self._translate_size(n if n is not None else -1)
+        data = await super().read(limit)
+        await self._after_read(len(data))
+        return data
+
+    async def readline(self) -> bytes:  # type: ignore[override]
+        data = await super().readline()
+        await self._after_read(len(data))
+        return data
+
+    async def readexactly(self, n: int) -> bytes:  # type: ignore[override]
+        data = await super().readexactly(n)
+        await self._after_read(len(data))
+        return data
+
+
+class _TransportClosingStreamWriter(asyncio.StreamWriter):
+    """StreamWriter that exposes an ``aclose`` coroutine."""
+
+    def __init__(
+        self,
+        transport: asyncio.BaseTransport,
+        protocol: asyncio.BaseProtocol,
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        super().__init__(transport, protocol, None, loop)
+        self._close_called = False
+
+    async def write(self, data: bytes) -> None:  # type: ignore[override]
+        super().write(data)
+        await self.drain()
+
+    def write_nowait(self, data: bytes) -> None:
+        super().write(data)
+
+    async def aclose(self) -> None:
+        if self._close_called:
+            return
+        self._close_called = True
+        try:
+            self.close()
+        except Exception:
+            pass
+
+        wait_writer = getattr(self, "wait_closed", None)
+        if callable(wait_writer):
+            try:
+                await wait_writer()
+            except Exception:
+                pass
+
+        transport = self.transport
+        if transport is not None:
+            try:
+                transport.close()
+            except Exception:
+                pass
+
+            wait_closed = getattr(transport, "wait_closed", None)
+            if callable(wait_closed):
+                await wait_closed()
+
 def _make_writer_protocol(loop: asyncio.AbstractEventLoop):
     """
     Return a protocol object suitable for passing to _ProactorBaseWritePipeTransport.
@@ -38,99 +139,20 @@ def _make_writer_protocol(loop: asyncio.AbstractEventLoop):
 
         return _FallbackWriterProtocol(loop)
 
-class AsyncPipeReader:
-    """Wrapper around a :class:`asyncio.StreamReader` backed by a pipe.
+class AsyncPipeReader(_TransportBoundStreamReader):
+    """StreamReader subclass that keeps the pipe transport alive."""
 
-    The ``connect_read_pipe`` transport keeps the OS handle alive until it is
-    explicitly closed.  The original sample code returned the bare
-    ``StreamReader`` and relied on the garbage collector to dispose the
-    transport which triggered noisy ``ResourceWarning`` messages on Windows.
 
-    Expose a small dedicated wrapper so callers can explicitly close the
-    transport once they are done consuming data.  ``reader`` is retained for
-    backward compatibility with the earlier ``NamedTuple`` API.
-    """
-
-    def __init__(self, reader: asyncio.StreamReader, transport: asyncio.BaseTransport):
-        self.reader = reader
-        self.transport = transport
-        self._closed = False
-
-    async def read(self, n: int | None = None) -> bytes:
-        if n is None:
-            data = await self.reader.read()
-        else:
-            data = await self.reader.read(n)
-        if self.reader.at_eof():
-            await self.aclose()
-        return data
-
-    async def readline(self) -> bytes:
-        data = await self.reader.readline()
-        if self.reader.at_eof():
-            await self.aclose()
-        return data
-
-    async def readexactly(self, n: int) -> bytes:
-        data = await self.reader.readexactly(n)
-        if self.reader.at_eof():
-            await self.aclose()
-        return data
-
-    async def aclose(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        try:
-            self.transport.close()
-        finally:
-            wait_closed = getattr(self.transport, "wait_closed", None)
-            if callable(wait_closed):
-                await wait_closed()
-
-class AsyncPipeWriter:
-    def __init__(self, writer: asyncio.StreamWriter, transport: asyncio.BaseTransport):
-        self.writer = writer
-        self.transport = transport
-
-    async def write(self, data: bytes) -> None:
-        self.writer.write(data)
-        await self.writer.drain()
-
-    async def aclose(self) -> None:
-        """Close the writer transport and wait until the handle is released."""
-
-        # ``StreamWriter.close`` delegates to ``transport.close`` but does not
-        # provide a direct awaitable.  Call both defensively and await the
-        # transport/stream closures when available so the overlapped handle is
-        # released before returning.
-        try:
-            self.writer.close()
-        except Exception:
-            pass
-
-        writer_wait_closed = getattr(self.writer, "wait_closed", None)
-        if callable(writer_wait_closed):
-            try:
-                await writer_wait_closed()
-            except Exception:
-                pass
-
-        try:
-            self.transport.close()
-        except Exception:
-            pass
-
-        wait_closed = getattr(self.transport, "wait_closed", None)
-        if callable(wait_closed):
-            await wait_closed()
+class AsyncPipeWriter(_TransportClosingStreamWriter):
+    """StreamWriter subclass with an ``aclose`` coroutine for pipe writers."""
 
 async def create_pipe_pair() -> tuple[AsyncPipeReader, AsyncPipeWriter]:
     """
     Create an overlapped anonymous pipe pair and wrap as asyncio reader/writer.
 
-    Returns:
-        (AsyncPipeReader, AsyncPipeWriter)
+    Returns ``(AsyncPipeReader, AsyncPipeWriter)`` where both objects inherit from
+    :class:`asyncio.StreamReader` / :class:`asyncio.StreamWriter` respectively and provide an
+    ``aclose`` coroutine for deterministic resource cleanup.
     """
     ensure_proactor_loop()
     loop = asyncio.get_running_loop()
@@ -140,10 +162,10 @@ async def create_pipe_pair() -> tuple[AsyncPipeReader, AsyncPipeWriter]:
 
     # Reader: connect_read_pipe
     rph = asyncio.windows_utils.PipeHandle(rh)
-    reader = asyncio.StreamReader()
+    reader = AsyncPipeReader()
     rproto = asyncio.StreamReaderProtocol(reader)
     rtransport, _ = await loop.connect_read_pipe(lambda: rproto, rph)
-    r = AsyncPipeReader(reader=reader, transport=rtransport)
+    reader.bind_transport(rtransport)
 
     # Writer: use instance of FlowControlMixin(loop) if possible (matches original)
     wph = asyncio.windows_utils.PipeHandle(wh)
@@ -153,6 +175,5 @@ async def create_pipe_pair() -> tuple[AsyncPipeReader, AsyncPipeWriter]:
         sock=wph, protocol=wproto, loop=loop, waiter=waiter, extra=None
     )
     await waiter
-    writer = asyncio.streams.StreamWriter(wtransport, wproto, None, loop)
-    w = AsyncPipeWriter(writer=writer, transport=wtransport)
-    return r, w
+    writer = AsyncPipeWriter(wtransport, wproto, loop)
+    return reader, writer

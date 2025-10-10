@@ -4,88 +4,49 @@ import asyncio.windows_utils
 
 from .utils import ensure_proactor_loop
 from . import winapi
-from .pipe import _make_writer_protocol
+from .pipe import _make_writer_protocol, _TransportBoundStreamReader, _TransportClosingStreamWriter
 
 # Desired defaults mirror your sample:
 #  - READ: OPEN_EXISTING, FILE_FLAG_OVERLAPPED
 #  - WRITE: CREATE_ALWAYS, FILE_FLAG_OVERLAPPED
 
-class AsyncFileReader:
-    def __init__(
-        self,
-        reader: asyncio.StreamReader,
-        transport: asyncio.BaseTransport,
-        file_size: int,
-    ):
-        self.reader = reader
-        self.transport = transport
+
+class AsyncFileReader(_TransportBoundStreamReader):
+    """StreamReader subclass that tracks the remaining file size."""
+    def __init__(self, file_size: int, *, limit: int | None = None):
+        super().__init__(limit=limit)
         self._remaining = max(file_size, 0)
-        self._closed = False
 
-    async def read(self, n: int | None = None) -> bytes:
+    @property
+    def remaining(self) -> int:
+        """Number of bytes left to consume from the file."""
+
+        return self._remaining
+
+    def _translate_size(self, n: int | None) -> int:
         if self._remaining == 0:
-            return b""
+            return 0
+        size = super()._translate_size(n)
+        if size == -1:
+            return self._remaining
+        return max(min(size, self._remaining), 0)
 
-        if n is None:
-            to_read = self._remaining
-        else:
-            to_read = max(min(n, self._remaining), 0)
-
-        if to_read == 0:
-            return b""
-
-        try:
-            data = await self.reader.read(to_read)
-        except asyncio.IncompleteReadError as exc:
-            data = exc.partial
-        self._remaining = max(self._remaining - len(data), 0)
-        if self._remaining == 0 or self.reader.at_eof():
+    async def _after_read(self, nbytes: int) -> None:
+        if self._remaining > 0:
+            self._remaining = max(self._remaining - nbytes, 0)
+        await super()._after_read(nbytes)
+        if self._remaining == 0:
             await self.aclose()
-        return data
 
-    async def aclose(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        try:
-            self.transport.close()
-        finally:
-            wait_closed = getattr(self.transport, "wait_closed", None)
-            if wait_closed is not None:
-                await wait_closed()
+    async def read(self, n: int | None = -1) -> bytes:  # type: ignore[override]
+        if self._remaining == 0:
+            await self.aclose()
+            return b""
+        return await super().read(n if n is not None else -1)
 
-class AsyncFileWriter:
-    def __init__(self, writer: asyncio.StreamWriter, transport: asyncio.BaseTransport):
-        self.writer = writer
-        self.transport = transport
 
-    async def write(self, data: bytes) -> None:
-        self.writer.write(data)
-        await self.writer.drain()
-
-    async def aclose(self) -> None:
-        """Close the writer and wait for the overlapped handle to be freed."""
-
-        try:
-            self.writer.close()
-        except Exception:
-            pass
-
-        writer_wait_closed = getattr(self.writer, "wait_closed", None)
-        if callable(writer_wait_closed):
-            try:
-                await writer_wait_closed()
-            except Exception:
-                pass
-
-        try:
-            self.transport.close()
-        except Exception:
-            pass
-
-        wait_closed = getattr(self.transport, "wait_closed", None)
-        if wait_closed is not None:
-            await wait_closed()
+class AsyncFileWriter(_TransportClosingStreamWriter):
+    """StreamWriter subclass for overlapped file handles."""
 
 DEFAULT_SHARE_FLAGS = (
     winapi.FILE_SHARE_READ | winapi.FILE_SHARE_WRITE | winapi.FILE_SHARE_DELETE
@@ -95,6 +56,9 @@ DEFAULT_SHARE_FLAGS = (
 async def open_async_reader(path: str, share_mode: int = DEFAULT_SHARE_FLAGS) -> AsyncFileReader:
     """
     Open a file for async READ using overlapped I/O and connect_read_pipe, like the sample.
+
+    Returns an :class:`AsyncFileReader`, a :class:`asyncio.StreamReader` subclass that
+    automatically closes the underlying transport once the file has been fully consumed.
 
     share_mode: typically 0. Use constants from ``win_asyncio_io.winapi`` when sharing is required.
     """
@@ -112,11 +76,12 @@ async def open_async_reader(path: str, share_mode: int = DEFAULT_SHARE_FLAGS) ->
     if osfhandle == winapi.INVALID_HANDLE_VALUE:
         raise OSError(f"CreateFile(read, {path!r}) failed")
     rph = asyncio.windows_utils.PipeHandle(osfhandle)
-    reader = asyncio.StreamReader()
+    file_size = winapi.GetFileSizeEx(osfhandle)
+    reader = AsyncFileReader(file_size)
     protocol = asyncio.StreamReaderProtocol(reader)
     transport, _ = await loop.connect_read_pipe(lambda: protocol, rph)
-    file_size = winapi.GetFileSizeEx(osfhandle)
-    return AsyncFileReader(reader, transport, file_size)
+    reader.bind_transport(transport)
+    return reader
 
 async def open_async_writer(
     path: str,
@@ -125,6 +90,9 @@ async def open_async_writer(
 ) -> AsyncFileWriter:
     """
     Open a file for async WRITE using overlapped I/O and _ProactorBaseWritePipeTransport.
+
+    Returns an :class:`AsyncFileWriter`, a :class:`asyncio.StreamWriter` subclass exposing an
+    ``aclose`` coroutine as well as a convenience ``write`` coroutine that writes and drains.
     """
     ensure_proactor_loop()
     loop = asyncio.get_running_loop()
@@ -143,10 +111,10 @@ async def open_async_writer(
 
     # Writer transport via private API (same as your sample)
     waiter = loop.create_future()
-    wproto = _make_writer_protocol(loop)   # <- 修正点
+    wproto = _make_writer_protocol(loop)
     wtransport = asyncio.proactor_events._ProactorBaseWritePipeTransport(  # type: ignore[attr-defined]
         sock=wph, protocol=wproto, loop=loop, waiter=waiter, extra=None
     )
     await waiter
-    writer = asyncio.streams.StreamWriter(wtransport, wproto, None, loop)
-    return AsyncFileWriter(writer, wtransport)
+    writer = AsyncFileWriter(wtransport, wproto, loop)
+    return writer
